@@ -1,0 +1,16 @@
+{
+  "name": "vue-swr-composable-monorepo-root",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {},
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^5.22.0",
+    "@typescript-eslint/parser": "^5.22.0",
+    "eslint": "^7",
+    "eslint-config-alloy": "^4.5.1",
+    "eslint-plugin-cypress": "^2.12.1",
+    "prettier": "^2.6.2",
+    "prettier-eslint": "^14.0.2",
+    "typescript": "^4.6.4"
+  }
+}
