@@ -1,8 +1,9 @@
+/* eslint-disable max-nested-callbacks */
 import { mount } from '@cypress/vue'
 import { config } from '@vue/test-utils'
 import { whenever } from '@vueuse/core'
-import { computed, defineComponent, nextTick, PropType, reactive, Ref, ref } from 'vue'
-import { useSwr, Resource, createAmnesiaStore, ResourceState } from '~lib'
+import { PropType, Ref, computed, defineComponent, inject, nextTick, onScopeDispose, provide, reactive, ref } from 'vue'
+import { Resource, ResourceState, createAmnesiaStore, useSwr } from '~lib'
 
 const DisplayOpt = defineComponent({
   props: {
@@ -19,6 +20,8 @@ const DisplayOpt = defineComponent({
     </code>
   `,
 })
+
+const DANGLING_PROMISE = new Promise(() => {})
 
 const ResourceStateView = defineComponent({
   components: {
@@ -59,8 +62,8 @@ const ResourceView = defineComponent({
         <ResourceStateView :state="resource.state" />
         <p>Key: <code>{{ resource.key }}</code></p>
         <div class="space-x-2">
-          <button @click="resource.markStale()">
-            Mark stale
+          <button @click="resource.refresh()">
+            Refresh
           </button>
           <button @click="resource.reset()">
             Reset
@@ -82,7 +85,6 @@ function useControlledPromise<T>(): {
 } {
   const control = ref<null | PromiseControl<T>>(null)
   let promiseControlled: Promise<T> | null = null
-  // let counter = 0
 
   return {
     control,
@@ -110,26 +112,268 @@ before(() => {
 
 describe('fetch abortation', () => {
   describe('happened...', () => {
-    it('when res is mutated while pending')
-    it('when composable is disposed')
-    it('when second res owner appears')
-    it('when res is reset')
+    it('when res is refreshed while pending (force: true)', () => {
+      mount({
+        setup() {
+          const aborted = ref(0)
+          const { resource } = useSwr({
+            fetch: (onAbort) => {
+              onAbort(() => {
+                aborted.value++
+              })
+
+              return DANGLING_PROMISE
+            },
+          })
+
+          function refresh() {
+            resource.value?.refresh(true)
+          }
+
+          return { aborted, resource, refresh }
+        },
+        template: `
+          <ResourceView v-bind="{ resource }" />
+
+          Aborted: {{ aborted }}
+
+          <button id="refresh" @click="refresh">Refresh</button>
+        `,
+      })
+
+      cy.contains('Pending: true')
+      cy.contains('Aborted: 0')
+      cy.get('#refresh').click()
+      cy.contains('Aborted: 1')
+    })
+
+    it('...not happened when refresh is not forced', () => {
+      mount({
+        setup() {
+          const aborted = ref(0)
+          const { resource } = useSwr({
+            fetch: (onAbort) => {
+              onAbort(() => {
+                aborted.value++
+              })
+
+              return DANGLING_PROMISE
+            },
+          })
+
+          function refresh() {
+            resource.value?.refresh()
+          }
+
+          return { aborted, resource, refresh }
+        },
+        template: `
+          <ResourceView v-bind="{ resource }" />
+
+          Aborted: {{ aborted }}
+
+          <button @click="refresh">Refresh</button>
+        `,
+      })
+
+      cy.contains('Pending: true')
+      cy.contains('Aborted: 0')
+      cy.contains('Refresh')
+        .click()
+        .then(async () => {
+          await nextTick()
+          await nextTick()
+          await nextTick()
+        })
+      cy.contains('Aborted: 0')
+    })
+
+    it('when composable is disposed', () => {
+      mount({
+        components: {
+          Child: {
+            setup() {
+              const aborted = inject<Ref<boolean>>('aborted')!
+              useSwr({
+                fetch: (onAbort) => {
+                  onAbort(() => {
+                    aborted.value = true
+                  })
+
+                  return DANGLING_PROMISE
+                },
+              })
+
+              return {}
+            },
+            template: `Unmount me, and you will see`,
+          },
+        },
+        setup() {
+          const aborted = ref(false)
+          provide('aborted', aborted)
+
+          const showChild = ref(true)
+
+          return { aborted, showChild }
+        },
+        template: `
+          <Child v-if="showChild" />
+
+          Aborted: {{ aborted }}
+
+          <button @click="showChild = false">Hide</button>
+        `,
+      })
+
+      cy.contains('Aborted: false')
+      cy.contains('Hide').click()
+      cy.contains('Aborted: true')
+    })
+
+    it('when res is reset', () => {
+      mount({
+        setup() {
+          const aborted = ref(false)
+          const { resource } = useSwr({
+            fetch: (onAbort) => {
+              onAbort(() => {
+                aborted.value = true
+              })
+
+              return DANGLING_PROMISE
+            },
+          })
+
+          return {
+            aborted,
+            reset: () => {
+              resource.value?.reset()
+            },
+          }
+        },
+        template: `
+          Aborted: {{ aborted }}
+
+          <button @click="reset">Reset</button>
+        `,
+      })
+
+      cy.contains('Aborted: false')
+      cy.contains('Reset').click()
+      cy.contains('Aborted: true')
+    })
+
+    it('on key change, and *pending* flag of aborted resource is set to false', () => {
+      mount({
+        setup() {
+          const store = createAmnesiaStore<any>()
+          const key = ref('foo')
+          const log = reactive<string[]>([])
+          useSwr({
+            fetch: computed(() => {
+              const k = key.value
+
+              return {
+                key: k,
+                fn: (onAbort) => {
+                  onAbort(() => {
+                    log.push(k)
+                  })
+
+                  return DANGLING_PROMISE
+                },
+              }
+            }),
+            store,
+          })
+
+          return {
+            log,
+            isFooPending: computed(() => store.storage.get('foo')?.pending ?? false),
+            setKeyToBar() {
+              key.value = 'bar'
+            },
+          }
+        },
+        template: `
+          <span>Foo pending: {{ isFooPending }}</span>
+          <pre>{{ log }}</pre>          
+          <button @click="setKeyToBar">Update key</button>
+        `,
+      })
+
+      cy.contains('Foo pending: true')
+      cy.get('pre').should('have.text', '[]')
+      cy.get('button').click()
+
+      cy.contains('Foo pending: false')
+      cy.get('pre').contains(/\[\s*"foo"\s*\]/)
+    })
+
+    it('happened and fetch result is not committed to the store', () => {
+      mount({
+        setup() {
+          const store = createAmnesiaStore<any>()
+          const key = ref('foo')
+          const aborted = ref(false)
+          const fooResolved = ref(false)
+          const fooProm = useControlledPromise()
+
+          useSwr({
+            fetch: computed(() => {
+              if (key.value === 'foo') {
+                return {
+                  key: key.value,
+                  fn: (onAbort) => {
+                    onAbort(() => {
+                      aborted.value = true
+                      fooProm.control.value?.resolve('something')
+                    })
+
+                    return fooProm.create().finally(() => {
+                      fooResolved.value = true
+                    })
+                  },
+                }
+              }
+
+              return {
+                key: key.value,
+                fn: () => DANGLING_PROMISE,
+              }
+            }),
+            store,
+          })
+
+          return {
+            aborted,
+            fooResolved,
+            isFooLoaded: computed(() => !!store.storage.get('foo')?.data),
+            setKeyToBar() {
+              key.value = 'bar'
+            },
+          }
+        },
+        template: `
+          <span>Aborted: {{ aborted }}</span>
+          <span>Resolved: {{ fooResolved }}</span>
+          <span>Loaded in store: {{ isFooLoaded }}</span>
+          <button @click="setKeyToBar">Update key</button>
+        `,
+      })
+
+      cy.contains('Aborted: false')
+      cy.contains('Resolved: false')
+      cy.contains('Loaded in store: false')
+
+      cy.get('button').click()
+
+      cy.contains('Aborted: true')
+      cy.contains('Resolved: true')
+      cy.contains('Loaded in store: false')
+    })
   })
-
-  it('happened and fetch result is not committed to the store')
-  it('happened on key change, and *pending* flag of aborted resource is set to false')
-})
-
-describe('ownership', () => {
-  it('when second owner appears, both of them are nulled')
-  it('when first owner disappears, state of the rest one comes to initial')
-  it(
-    'when there are a lot of owners, and state is reset, ' +
-      'then they are still inactive and owners counter is set properly',
-  )
-
-  // `refresh on capture` functionality may be moved to plugin
-  // it('when state restores after ownership violation, initial fetch happens')
 })
 
 describe('etc', () => {
@@ -137,7 +381,7 @@ describe('etc', () => {
     mount({
       setup() {
         const { resource } = useSwr({
-          fetch: async () => undefined,
+          fetch: () => new Promise(() => {}),
         })
 
         return {
@@ -197,7 +441,7 @@ describe('etc', () => {
 
     cy.contains('Pending: true')
     cy.contains('Resolve').click()
-    cy.contains('Mark stale').click()
+    cy.contains('Refresh').click()
     cy.contains('Pending: true')
     cy.contains('Data: Some(foo)')
   })
@@ -227,7 +471,7 @@ describe('etc', () => {
     cy.contains('Pending: true')
     cy.contains('Resolve foo').click()
     cy.contains('Data: Some(foo)')
-    cy.contains('Mark stale').click()
+    cy.contains('Refresh').click()
     cy.contains('Resolve bar').click()
     cy.contains('Data: Some(bar)')
   })
@@ -295,7 +539,7 @@ describe('etc', () => {
     })
 
     cy.contains('Resolve').click()
-    cy.contains('Mark stale').click()
+    cy.contains('Refresh').click()
     cy.contains('Reject').click()
 
     cy.contains('Data: Some(bar)')
@@ -453,11 +697,11 @@ describe('etc', () => {
 
     cy.contains('Data: Some(0)')
 
-    cy.contains('Mark stale').click()
+    cy.contains('Refresh').click()
     cy.contains('Data: Some(1)')
   })
 
-  it.only("when fetch is pending, store state resets and fetch resolves, then store isn't mutated, even pending state", () => {
+  it("when fetch is pending, store state resets and fetch resolves, then store isn't mutated, even pending state", () => {
     mount({
       setup() {
         const store = createAmnesiaStore<any>()
@@ -483,7 +727,6 @@ describe('etc', () => {
             store.storage.clear()
           },
           secondPending: computed(() => !!prom2.control.value),
-          // state: computed(() => store.get('static'))
         }
       },
       template: `
@@ -501,5 +744,212 @@ describe('etc', () => {
     cy.contains('Data: None')
   })
 
-  it("when fetch is pending, store state resets and fetch rejects, then store's error isn't mutated")
+  it("when fetch is pending, store state resets and fetch rejects, then store's error isn't mutated", () => {
+    mount({
+      setup() {
+        const store = createAmnesiaStore<any>()
+        const prom1 = useControlledPromise()
+        const prom2 = useControlledPromise()
+        const { resource } = useSwr({
+          fetch: {
+            key: 'static',
+            fn: async () => {
+              if (prom1.control.value) return prom2.create()
+              return prom1.create()
+            },
+          },
+          store,
+        })
+
+        return {
+          resource,
+          rejectFirst: () => {
+            prom1.control.value?.reject(new Error('one'))
+          },
+          resetStore: () => {
+            store.storage.clear()
+          },
+          secondPending: computed(() => !!prom2.control.value),
+        }
+      },
+      template: `
+        <ResourceView v-bind="{ resource }" />
+
+        <button @click="resetStore">Reset store</button>
+        <button v-if="secondPending" @click="resolveFirst">Reject first</button>
+      `,
+    })
+
+    cy.contains('Pending: true')
+    cy.contains('Reset store').click()
+    cy.contains('Reject first').click()
+    cy.contains('Pending: true')
+    cy.contains('Data: None')
+    cy.contains('Err: None')
+  })
+})
+
+describe('plugins', () => {
+  it('is called when there is some resource', () => {
+    mount({
+      setup() {
+        const called = ref(false)
+        useSwr({
+          fetch: () => DANGLING_PROMISE,
+          use: [
+            () => {
+              called.value = true
+            },
+          ],
+        })
+
+        return { called }
+      },
+      template: `Called: {{ called }}`,
+    })
+
+    cy.contains('Called: true')
+  })
+
+  it('is called on key change', () => {
+    mount({
+      setup() {
+        const count = ref(0)
+        const key = ref('foo')
+
+        useSwr({
+          fetch: computed(() => ({
+            key: key.value,
+            fn: () => DANGLING_PROMISE,
+          })),
+          use: [
+            () => {
+              count.value++
+            },
+          ],
+        })
+
+        return {
+          count,
+          changeKey() {
+            key.value = 'bar'
+          },
+        }
+      },
+      template: `
+        <p>Count: {{ count }}</p>
+        <button @Click="changeKey">Change</button>
+      `,
+    })
+
+    cy.contains('Count: 1')
+    cy.get('button').click()
+    cy.contains('Count: 2')
+  })
+
+  it('is not called when no resource', () => {
+    mount({
+      setup() {
+        const called = ref(false)
+
+        useSwr({
+          fetch: computed(() => null),
+          use: [() => {}],
+        })
+
+        return { called }
+      },
+      template: `Called: {{ called }}`,
+    })
+
+    cy.contains('Called: false')
+  })
+
+  it('plugin scope is disposed on falsy key', () => {
+    mount({
+      setup() {
+        const active = ref(true)
+        const disposed = ref(false)
+
+        useSwr({
+          fetch: computed(() => active.value && (() => DANGLING_PROMISE)),
+          use: [
+            () => {
+              onScopeDispose(() => {
+                disposed.value = true
+              })
+            },
+          ],
+        })
+
+        return { active, disposed }
+      },
+      template: `
+        <input v-model="active" type="checkbox">
+        <p>Disposed: {{ disposed }}</disposed>
+      `,
+    })
+
+    cy.contains('Disposed: false')
+    cy.get('input').uncheck()
+    cy.contains('Disposed: true')
+  })
+
+  it('plugin scope is disposed on key change', () => {
+    mount({
+      setup() {
+        const key = ref('foo')
+        const disposed = ref(false)
+
+        useSwr({
+          fetch: computed(() => ({
+            key: key.value,
+            fn: () => DANGLING_PROMISE,
+          })),
+          use: [
+            () => {
+              onScopeDispose(() => {
+                disposed.value = true
+              })
+            },
+          ],
+        })
+
+        return { key, disposed }
+      },
+      template: `
+        <button @click="key = 'bar'">Change</button>
+        <p>Disposed: {{ disposed }}</disposed>
+      `,
+    })
+
+    cy.contains('Disposed: false')
+    cy.get('button').click()
+    cy.contains('Disposed: true')
+  })
+
+  it('all plugins are called, even if some of them throws', () => {
+    const EXPECTED = 10
+
+    mount({
+      setup() {
+        const actual = ref(0)
+
+        useSwr({
+          fetch: () => DANGLING_PROMISE,
+          use: Array.from({ length: EXPECTED }, (v, i) => () => {
+            actual.value++
+            if (i % 3 === 0) {
+              throw new Error('This error should not prevent other plugins to run')
+            }
+          }),
+        })
+
+        return { actual }
+      },
+      template: `Actual: {{ actual }}`,
+    })
+
+    cy.contains('Actual: 10')
+  })
 })

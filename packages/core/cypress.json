@@ -2,5 +2,7 @@
   "component": {
     "componentFolder": "cypress/component",
     "testFiles": "**/*.spec.{ts,js}"
-  }
+  },
+  "integrationFolder": false,
+  "fixturesFolder": false
 }

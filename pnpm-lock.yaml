@@ -12,6 +12,7 @@ importers:
       prettier: ^2.6.2
       prettier-eslint: ^14.0.2
       typescript: ^4.6.4
+      vitest: ^0.12.0
     devDependencies:
       '@typescript-eslint/eslint-plugin': 5.22.0_27efc1da00e78084f5aa1809ff6483a1
       '@typescript-eslint/parser': 5.22.0_eslint@7.32.0+typescript@4.6.4
@@ -21,6 +22,7 @@ importers:
       prettier: 2.6.2
       prettier-eslint: 14.0.2
       typescript: 4.6.4
+      vitest: 0.12.0
 
   packages/core:
     specifiers:
@@ -28,13 +30,12 @@ importers:
       '@cypress/vue': ^3.1.2
       '@unocss/reset': ^0.33.1
       '@vue/test-utils': ^2.0.0-rc.21
-      '@vueuse/core': ^8.4.2
+      '@vueuse/core': ^8
       cypress: ^9.6.0
       type-fest: ^2.12.2
       unocss: ^0.33.1
       vite: ^2.9.8
-      vitest: ^0.12.0
-      vue: 3.2.30
+      vue: ^3.2
     dependencies:
       '@vueuse/core': 8.4.2_vue@3.2.30
       vue: 3.2.30
@@ -47,7 +48,6 @@ importers:
       type-fest: 2.12.2
       unocss: 0.33.1_vite@2.9.8
       vite: 2.9.8
-      vitest: 0.12.0
 
 packages:
 

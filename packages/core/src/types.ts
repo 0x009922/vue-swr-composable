@@ -1,5 +1,4 @@
 import { Ref, ShallowRef } from 'vue'
-import { SetOptional } from 'type-fest'
 
 /**
  * Data that may exist or may not.
@@ -34,13 +33,12 @@ export interface ResourceState<T> {
   /**
    * TODO doc
    */
-  owners: number
+  // busy: boolean
 }
 
 export interface UseResourceReturn<T> {
   /**
-   * Reactive resource. It may be null, if resource key is reactive and falsy, or if there
-   * is a resource ownership violation (see {@link Resource} docs)
+   * Reactive resource. It may be null, if resource key is reactive and falsy.
    */
   resource: ShallowRef<null | Resource<T>>
 }
@@ -58,33 +56,32 @@ export interface UseResourceReturn<T> {
  * If you have a reactive keyed fetch, and it is re-computed to the same keyed fetch, then update of the fetch function
  * itself is ignored.
  *
- * ## Resource ownership rule
  *
- * You are not allowed to use multiple SWR composables that use the same key and **the same store**, because
- * such a case produces uncertainty - whose fetch function to use? So, only a single composable may own a resource at
- * a time.
+ * ## Data refreshing
  *
- * ## Mark data as stale
- *
- * When resource data is outdated, you might tarnish it. The resource data will be still old,
+ * When resource data is outdated, you might refresh it. The resource data will be stale,
  * but the process of its refreshing will be started.
  *
  * This process may be aborted in several cases:
  *
- * - Resource is mutated while being pending
- * - Resource owners count became 0 or > 1
- *   - Resource key is changed
- *   - Composable is disposed
- *   - New resource owner is appeared
- * - Resource is reset
+ * - Resource is reset by {@link Resource.reset()} or by resetting state at the store
+ * - Resource is refreshed *forcefully* while being pending
+ * - Composable *reactive* key is changed to another one
+ * - Composable scope is disposed
  */
 export interface Resource<T> {
+  /**
+   * Reactive object with resource state.
+   */
   state: ResourceState<T>
   key: ResourceKey
   /**
-   * Mark **current** resource as not fresh
+   * Mark **current** resource as not fresh.
+   *
+   * @param force - if resource is already pending, should it be aborted
+   *  and re-fetched [default: `false`]
    */
-  markStale: () => void
+  refresh: (force?: boolean) => void
   /**
    * Reset **current** resource
    */
@@ -97,12 +94,18 @@ export interface Resource<T> {
 export type ResourceKey = string | number | symbol
 
 /**
- * Special resource key that is used when key is not specified explicitly
+ * Special key that is used when resource key is not specified explicitly
  */
-export const ANONYMOUS_KEY = Symbol('Anonymous')
+export const ANONYMOUS_RESOURCE = Symbol('Anonymous')
 
 export interface ResourceStore<T> {
+  /**
+   * *Reactive* resource getter. If `null` is returned, then resource will be resetted with {@link ResourceStore.set()}.
+   */
   get: (key: ResourceKey) => ResourceState<T> | null
+  /**
+   * Resource state setter
+   */
   set: (key: ResourceKey, state: ResourceState<T> | null) => void
 }
 
@@ -120,11 +123,6 @@ export interface UseResourceParams<T, S extends ResourceStore<T>> {
    */
   store?: S
   /**
-   * FIXME maybe move to plugin?
-   * @default false
-   */
-  refreshOnCapture?: boolean
-  /**
    * Plugins list
    */
   use?: UseResourcePlugin<T, S>[]
@@ -140,7 +138,6 @@ export type UseResourcePlugin<T, S extends ResourceStore<T>> = (context: UseReso
  */
 export interface UseResourcePluginSetupContext<T, S extends ResourceStore<T>> {
   resource: Resource<T>
-  key: ResourceKey
   store: S
 }
 
@@ -150,22 +147,17 @@ export interface UseResourcePluginSetupContext<T, S extends ResourceStore<T>> {
  * It may be:
  *
  * - Just a fetch function that resolves to resource data.
- *   In that case it's key considered as {@link ANONYMOUS_KEY}.
+ *   In that case it's key considered as {@link ANONYMOUS_RESOURCE}.
  * - Static, but keyed async function.
  * - Reactive resource fetch function, keyed or anonymous.
  *   Also it may be a falsy value in case you need to reactively disable composable at all.
  */
 export type ResourceFetchConfig<T> =
   | FetchFn<T>
-  | MaybeKeyedFetchFn<T>
-  | Ref<null | undefined | false | FetchFn<T> | MaybeKeyedFetchFn<T>>
+  | KeyedFetchFn<T>
+  | Ref<null | undefined | false | FetchFn<T> | KeyedFetchFn<T>>
 
 export interface KeyedFetchFn<T> {
   key: ResourceKey
   fn: FetchFn<T>
 }
-
-/**
- * If `key` is omitted, it is considered as {@link ANONYMOUS_KEY}.
- */
-export type MaybeKeyedFetchFn<T> = SetOptional<KeyedFetchFn<T>, 'key'>

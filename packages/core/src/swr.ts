@@ -1,151 +1,146 @@
 import {
+  EffectScope,
+  Ref,
+  WatchSource,
   computed,
-  watch,
-  onUnmounted,
+  effectScope,
+  getCurrentScope,
   markRaw,
   onScopeDispose,
-  Ref,
-  unref,
-  ComputedRef,
+  readonly,
   ref,
   shallowRef,
-  reactive,
-  readonly,
-  getCurrentScope,
-  EffectScope,
-  effectScope,
-  watchEffect,
+  unref,
+  watch,
 } from 'vue'
-import { computedEager, whenever } from '@vueuse/core'
+import { whenever } from '@vueuse/core'
 import {
+  ANONYMOUS_RESOURCE,
+  FetchFnOnAbort,
+  KeyedFetchFn,
+  Option,
+  Resource,
+  ResourceFetchConfig,
+  ResourceKey,
   ResourceState,
   ResourceStore,
   UseResourceParams,
+  UseResourcePluginSetupContext,
   UseResourceReturn,
-  ResourceKey,
-  KeyedFetchFn,
-  FetchFn,
-  ResourceFetchConfig,
-  ANONYMOUS_KEY,
-  Option,
-  Resource,
-  FetchFnOnAbort,
 } from './types'
-import { AmnesiaStore, createAmnesiaStore } from './amnesia-store'
-// import { normalizeResourceFetch, createLogger, Logger } from './tools'
-// import { setupErrorRetry } from './error-retry'
-import { Except, Opaque } from 'type-fest'
+import { createAmnesiaStore } from './amnesia'
 
-// const RESOURCE_STATE_EMPTY: ResourceState<any> = Object.freeze({
-//   data: null,
-//   error: null,
-//   isPending: false,
-// })
+function resourceEmptyState<T>(): ResourceState<T> {
+  return {
+    data: null,
+    error: null,
+    fresh: false,
+    pending: false,
+  }
+}
 
 const FETCH_TASK_ABORTED = Symbol('Aborted')
 
-export function useSwr<T, S extends ResourceStore<T> = AmnesiaStore<T>>(
-  params: UseResourceParams<T, S>,
-): UseResourceReturn<T> {
+export function useSwr<T, S extends ResourceStore<T>>(params: UseResourceParams<T, S>): UseResourceReturn<T> {
   const fetch = normalizeFetch(params.fetch)
-  const keyReactive = computed<null | ResourceKey>(() => fetch.value?.key ?? null)
   const resource = shallowRef<null | Resource<T>>(null)
+  const store = (params.store ?? createAmnesiaStore()) as S
 
-  const store = params.store ?? createAmnesiaStore()
+  useSourceScope<ResourceKey>(
+    () => {
+      const keyedFetch = fetch.value
+      return keyedFetch && { some: keyedFetch.key }
+    },
+    (keyStatic) => {
+      const state = computed(() => store.get(keyStatic))
 
-  useKeyedScope(keyReactive, (keyStatic) => {
-    console.log('keyed scope:', keyStatic)
-    const state = computed(() => store.get(keyStatic))
-    // const stateIsEmpty = computed(() => !state.value)
-
-    // Ownership
-
-    const { confirmed: ownershipConfirmed } = useResourceOwnership(state)
-
-    // State management
-
-    function reset() {
-      console.log('RESET')
-      store.set(keyStatic, {
-        data: null,
-        error: null,
-        fresh: false,
-        pending: false,
-        owners: 0,
-      })
-    }
-
-    function markStale() {
-      if (state.value) {
-        state.value.fresh = false
-      }
-    }
-
-    watchEffect(() => {
-      console.log('STATE', { ...state.value }, state.value)
-    })
-
-    whenever(
-      () => !state.value,
-      () =>
-        // if there are multiple owners of the resource, it may cause duplicated resets from all of them
-        // promise is required here because of some strange vue behavior
-        Promise.resolve().then(reset),
-      { immediate: true },
-    )
-
-    // Resource fetch triggering scope when ownership is confirmed
-
-    useConditionalScope(ownershipConfirmed, () => {
-      console.log('owned')
-
-      const currentFetchTask = ref<null | { promise: Promise<void>; abort: () => void }>(null)
-
-      function abortFetchTaskIfThereIsSome() {
-        currentFetchTask.value?.abort()
-        currentFetchTask.value = null
+      function reset() {
+        store.set(keyStatic, resourceEmptyState())
       }
 
-      const triggerExecuteFetch = computed<boolean>(() => !!state.value && !state.value.pending && !state.value.fresh)
-      watch(
-        [triggerExecuteFetch, state],
-        ([trigger]) => {
-          if (trigger) {
-            // maybe state changed
-            abortFetchTaskIfThereIsSome()
-
-            const { abort, onAbort } = initFetchAbort()
-            const promise = executeFetch({
-              fetch: fetch.value!,
-              state: state.value!,
-              onAbort,
-              // eslint-disable-next-line max-nested-callbacks
-            }).finally(() => {
-              if (promise === currentFetchTask.value?.promise) {
-                currentFetchTask.value = null
-                console.log('fetch finalized, promise is still there, nulled')
-              }
-            })
-
-            currentFetchTask.value = { promise, abort }
-          }
-        },
+      whenever(
+        () => !state.value,
+        () =>
+          // promise is required here because of some strange vue behavior
+          Promise.resolve().then(reset),
         { immediate: true },
       )
 
-      resource.value = readonly<Except<Resource<T>, 'state'> & { state: Ref<ResourceState<T>> }>({
-        state: state as Ref<ResourceState<T>>,
-        key: keyStatic,
-        markStale,
-        reset,
-      }) as Resource<T>
+      // Resource fetch triggering scope when ownership is confirmed
 
-      onScopeDispose(() => {
-        abortFetchTaskIfThereIsSome()
-        resource.value = null
-      })
-    })
-  })
+      useSourceScope(
+        () => state.value && { some: state.value },
+        (state) => {
+          const currentFetchTask = ref<null | { promise: Promise<void>; abort: () => void }>(null)
+
+          function abortFetchTaskIfThereIsSome() {
+            state.pending = false
+            currentFetchTask.value?.abort()
+            currentFetchTask.value = null
+          }
+
+          const triggerExecuteFetch = computed<boolean>(() => !state.pending && !state.fresh)
+          whenever(
+            triggerExecuteFetch,
+            () => {
+              // maybe state changed
+              abortFetchTaskIfThereIsSome()
+
+              const { abort, onAbort } = initFetchAbort()
+              const promise = executeFetch({
+                fetch: fetch.value!,
+                state,
+                onAbort,
+                // eslint-disable-next-line max-nested-callbacks
+              }).finally(() => {
+                if (promise === currentFetchTask.value?.promise) {
+                  currentFetchTask.value = null
+                }
+              })
+
+              currentFetchTask.value = { promise, abort }
+            },
+            { immediate: true },
+          )
+
+          function refresh(force?: boolean): void {
+            state.fresh = false
+
+            if (force) {
+              abortFetchTaskIfThereIsSome()
+            }
+          }
+
+          let res = readonly<Resource<T>>({
+            state,
+            key: keyStatic,
+            refresh,
+            reset,
+          }) as Resource<T>
+
+          resource.value = res
+
+          const pluginCtx: UseResourcePluginSetupContext<T, S> = {
+            resource: res,
+            store,
+          }
+
+          for (const plugin of params.use ?? []) {
+            try {
+              plugin(pluginCtx)
+            } catch (err) {
+              console.error('Plugin (%o) setup failed: %o', plugin, err)
+            }
+          }
+
+          onScopeDispose(() => {
+            abortFetchTaskIfThereIsSome()
+            resource.value = null
+          })
+        },
+      )
+    },
+  )
 
   return { resource }
 }
@@ -158,92 +153,37 @@ function normalizeFetch<T>(fetch: ResourceFetchConfig<T>): Ref<null | KeyedFetch
     const value = unref(fetch)
 
     if (!value) return null
+
     if (typeof value === 'function')
       return {
-        key: ANONYMOUS_KEY,
+        key: ANONYMOUS_RESOURCE,
         fn: value,
       }
-    return {
-      key: ANONYMOUS_KEY,
-      ...value,
-    }
+
+    return value
   })
 }
 
-function useKeyedScope(key: Ref<null | ResourceKey>, setup: (key: ResourceKey) => void) {
+function useSourceScope<T>(source: WatchSource<Option<T>>, setup: (value: T) => void) {
   const main = getCurrentScope() || effectScope()
   let scope: null | EffectScope = null
 
   watch(
-    key,
-    (key) => {
+    source,
+    (value) => {
       if (scope) {
         scope.stop()
         scope = null
       }
-      if (key) {
-        main.run(() => {
-          scope = effectScope()
-          scope.run(() => setup(key))
-        })
-      }
-    },
-    { immediate: true },
-  )
-}
-
-function useConditionalScope(condition: Ref<boolean>, setup: () => void) {
-  const main = getCurrentScope() || effectScope()
-  let scope: null | EffectScope = null
-
-  watch(
-    condition,
-    (value) => {
       if (value) {
         main.run(() => {
           scope = effectScope()
-          scope.run(setup)
+          scope.run(() => setup(value.some))
         })
-      } else {
-        scope?.stop()
-        scope = null
       }
     },
     { immediate: true },
   )
-}
-
-function useResourceOwnership(state: Ref<null | ResourceState<unknown>>): {
-  /**
-   * Sign that ownership is committed and not violated
-   */
-  confirmed: Ref<boolean>
-} {
-  const committed = ref(false)
-  const confirmed = computed(() => !!state.value && state.value.owners === 1 && committed.value)
-
-  watch(
-    state,
-    (state) => {
-      if (state) {
-        state.owners++
-        committed.value = true
-      } else {
-        committed.value = false
-      }
-
-      console.log('ownership status:', committed.value, state?.owners)
-    },
-    { immediate: true },
-  )
-
-  onScopeDispose(() => {
-    if (committed.value && state.value) {
-      state.value.owners--
-    }
-  })
-
-  return { confirmed }
 }
 
 interface ExecuteFetchParams<T> {
@@ -254,11 +194,10 @@ interface ExecuteFetchParams<T> {
 
 /**
  * Run fetch and update state accordingly to progress. May be aborted.
+ *
+ * On abortation does not commit any results to the store.
  */
 async function executeFetch<T>({ fetch, state, onAbort }: ExecuteFetchParams<T>): Promise<void> {
-  // // is it needed?
-  // await Promise.resolve()
-
   state.pending = true
   let result: typeof FETCH_TASK_ABORTED | T
 

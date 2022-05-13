@@ -1,5 +1,5 @@
-import { reactive, shallowRef, ShallowRef } from 'vue'
-import { ResourceState, ResourceStore, ResourceKey } from './types'
+import { reactive } from 'vue'
+import { ResourceKey, ResourceState, ResourceStore } from './types'
 
 type AmnesiaStoreStorage<T> = Map<ResourceKey, ResourceState<T> | null>
 
