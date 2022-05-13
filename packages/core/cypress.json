@@ -3,6 +3,6 @@
     "componentFolder": "cypress/component",
     "testFiles": "**/*.spec.{ts,js}"
   },
-  "integrationFolder": false,
-  "fixturesFolder": false
+  "fixturesFolder": false,
+  "video": false
 }

@@ -1,10 +1,6 @@
 {
   "name": "@vue-swr-composable/core",
   "version": "0.1.0",
-  "scripts": {
-    "cy": "cypress open-ct -b firefox",
-    "cy:ci": "cypress run-ct"
-  },
   "keywords": [
     "vue",
     "swr",
@@ -15,8 +11,10 @@
     "data",
     "async"
   ],
-  "author": "",
-  "license": "ISC",
+  "scripts": {
+    "cy": "cypress open-ct -b firefox",
+    "test:ci": "cypress run-ct"
+  },
   "dependencies": {
     "@vueuse/core": "^8",
     "vue": "^3.2"
