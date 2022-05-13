@@ -1,7 +1,7 @@
 import { reactive } from 'vue'
 import { ResourceKey, ResourceState, ResourceStore } from './types'
 
-type AmnesiaStoreStorage<T> = Map<ResourceKey, ResourceState<T> | null>
+export type AmnesiaStoreStorage<T> = Map<ResourceKey, ResourceState<T> | null>
 
 export interface AmnesiaStore<T> extends ResourceStore<T> {
   storage: AmnesiaStoreStorage<T>

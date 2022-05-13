@@ -4,10 +4,10 @@
 
 ## Features
 
-- ☯️ Minimal functional API. No singletons, no side effects.
+- ✨ Minimal functional API. No singletons, no side effects.
 - 💎 Declarative data fetching with pending and error states
-- ✈️ Transport agnostic
-- ✨ Stale-if-error
+- 📦 Transport-agnostic
+- 💢 Stale-if-error
 - 🔀 Parametrized resources with reactive keys
 - 💾 Customazible storage
 - 🔧 TypeScript ready

@@ -1,6 +1,15 @@
 {
   "name": "@vue-swr-composable/core",
   "version": "0.1.0",
+  "main": "dist/lib.cjs.js",
+  "module": "dist/lib.es.js",
+  "types": "dist/lib.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/lib.es.js",
+      "require": "./dist/lib.umd.js"
+    }
+  },
   "keywords": [
     "vue",
     "swr",
@@ -13,7 +22,10 @@
   ],
   "scripts": {
     "cy": "cypress open-ct -b firefox",
-    "test:ci": "cypress run-ct"
+    "test:ci": "cypress run-ct",
+    "build": "run-s build:dts build:js",
+    "build:dts": "tsc --build --clean && tsc --declaration --emitDeclarationOnly",
+    "build:js": "vite build"
   },
   "dependencies": {
     "@vueuse/core": "^8",

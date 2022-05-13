@@ -56,7 +56,6 @@ export interface UseResourceReturn<T> {
  * If you have a reactive keyed fetch, and it is re-computed to the same keyed fetch, then update of the fetch function
  * itself is ignored.
  *
- *
  * ## Data refreshing
  *
  * When resource data is outdated, you might refresh it. The resource data will be stale,
@@ -64,7 +63,7 @@ export interface UseResourceReturn<T> {
  *
  * This process may be aborted in several cases:
  *
- * - Resource is reset by {@link Resource.reset()} or by resetting state at the store
+ * - Resource is reset by {@link Resource.reset} or by resetting state at the store
  * - Resource is refreshed *forcefully* while being pending
  * - Composable *reactive* key is changed to another one
  * - Composable scope is disposed
@@ -100,7 +99,7 @@ export const ANONYMOUS_RESOURCE = Symbol('Anonymous')
 
 export interface ResourceStore<T> {
   /**
-   * *Reactive* resource getter. If `null` is returned, then resource will be resetted with {@link ResourceStore.set()}.
+   * *Reactive* resource getter. If `null` is returned, then resource will be resetted with {@link ResourceStore.set}.
    */
   get: (key: ResourceKey) => ResourceState<T> | null
   /**

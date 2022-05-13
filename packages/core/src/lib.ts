@@ -1,3 +1,9 @@
+/**
+ * SWR composable core library.
+ *
+ * @packageDocumentation
+ */
+
 export * from './types'
 export * from './swr'
 export * from './amnesia'

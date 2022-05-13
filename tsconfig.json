@@ -13,6 +13,5 @@
     "lib": ["esnext", "dom"],
     "skipLibCheck": true,
     "composite": true
-  },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"]
+  }
 }

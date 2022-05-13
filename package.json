@@ -5,9 +5,15 @@
     "test:unit": "vitest run",
     "test:ci": "run-s lint test:unit test:core-ci",
     "test:core-ci": "pnpm test:ci --filter core",
-    "lint": "eslint --ext ts ."
+    "lint": "eslint --ext ts .",
+    "build": "run-s build:main api:run",
+    "build:main": "pnpm build --filter core",
+    "api:run": "api-extractor run -c ./packages/core/api-extractor.json",
+    "api:run:local": "pnpm api:run -- -l",
+    "publish-all": "pnpm publish packages/core"
   },
   "devDependencies": {
+    "@microsoft/api-extractor": "^7.23.2",
     "@typescript-eslint/eslint-plugin": "^5.22.0",
     "@typescript-eslint/parser": "^5.22.0",
     "eslint": "^7",
